@@ -11,13 +11,13 @@ Este bot foi projetado para operar de forma autônoma na exchange de criptomoeda
 
 **Funcionalidades:**
 
-* **Análise técnica avançada:** Utiliza uma variedade de indicadores técnicos, incluindo Ichimoku Cloud (pendente), Parabolic SAR (pendente) e padrões de candles (pendente), para gerar sinais de trading precisos.
-* **Múltiplos timeframes:** Analisa o mercado em diferentes timeframes para identificar oportunidades de trading em diversas escalas de tempo (pendente).
-* **Gerenciamento de risco:** Implementa estratégias de gerenciamento de risco, como stop-loss, take-profit e trailing stop (pendente), para proteger o capital e maximizar os lucros.
-* **Otimização de parâmetros:** Permite a otimização dos parâmetros do bot para encontrar as configurações mais eficientes para diferentes condições de mercado (pendente).
-* **Análise de sentimento:** Integra análise de sentimento do mercado para incorporar informações adicionais na tomada de decisão (pendente).
-* **Aprendizado de máquina:** Utiliza algoritmos de aprendizado de máquina para melhorar a precisão dos sinais de trading e a adaptação às condições do mercado (pendente).
-* **Interface amigável:** Possui uma interface web intuitiva para monitorar o desempenho do bot e ajustar as configurações (pendente).
+* **Análise técnica avançada:** Utiliza uma variedade de indicadores técnicos, incluindo Ichimoku Cloud , Parabolic SAR  e padrões de candles , para gerar sinais de trading precisos.
+* **Múltiplos timeframes:** Analisa o mercado em diferentes timeframes para identificar oportunidades de trading em diversas escalas de tempo .
+* **Gerenciamento de risco:** Implementa estratégias de gerenciamento de risco, como stop-loss, take-profit e trailing stop , para proteger o capital e maximizar os lucros.
+* **Otimização de parâmetros:** Permite a otimização dos parâmetros do bot para encontrar as configurações mais eficientes para diferentes condições de mercado .
+* **Análise de sentimento:** Integra análise de sentimento do mercado para incorporar informações adicionais na tomada de decisão .
+* **Aprendizado de máquina:** Utiliza algoritmos de aprendizado de máquina para melhorar a precisão dos sinais de trading e a adaptação às condições do mercado .
+* **Interface amigável:** Possui uma interface web intuitiva para monitorar o desempenho do bot e ajustar as configurações .
 * **Alertas via Telegram:** Envia alertas via Telegram com informações sobre os sinais de trading e o desempenho do bot (implementado).
 
 **Funcionalidades Adicionais (não no Roadmap original):**
@@ -32,9 +32,9 @@ Este bot foi projetado para operar de forma autônoma na exchange de criptomoeda
 O desenvolvimento do bot está dividido em quatro fases:
 
 * **Fase 1:** Melhorias na análise técnica e mensagens do Telegram. (em andamento)
-* **Fase 2:** Monitoramento, relatórios e testes. (pendente)
-* **Fase 3:** Otimização e automação. (pendente)
-* **Fase 4:** Análise de sentimento e inteligência artificial. (pendente)
+* **Fase 2:** Monitoramento, relatórios e testes. 
+* **Fase 3:** Otimização e automação. 
+* **Fase 4:** Análise de sentimento e inteligência artificial. 
 
 **Como usar:**
 
