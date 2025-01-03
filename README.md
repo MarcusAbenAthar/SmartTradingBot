@@ -1,6 +1,6 @@
 # SmartTradingBot
 
-![SmartTradingBot Logo](assets/images/smarttradingbot-logo.png)
+![SmartTradingBot Logo](assets/images/smarttradingbot-logo.webp)
 
 **Um bot de trading automatizado e dinâmico para operar na Bybit, baseado em sinais de indicadores técnicos e com funcionalidades avançadas de otimização, gerenciamento de risco e inteligência artificial.**
 
