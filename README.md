@@ -1,6 +1,7 @@
 # SmartTradingBot
 
-![SmartTradingBot Logo](https://github.com/MarcusAbenAthar/SmartTradingBot/blob/main/assets/image/smarttradingbot_logo.webp)
+<img src="https://github.com/MarcusAbenAthar/SmartTradingBot/blob/main/assets/image/smarttradingbot_logo.webp" alt="SmartTradingBot Logo" width="200" height="200">
+
 
 **Um bot de trading automatizado e dinâmico para operar na Bybit, baseado em sinais de indicadores técnicos e com funcionalidades avançadas de otimização, gerenciamento de risco e inteligência artificial.**
 
