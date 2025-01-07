@@ -360,42 +360,51 @@ async def handle_message(exchange, message):
         logger.exception(e)
 
 
-# Função para se inscrever em um WebSocket para obter dados de trades
 async def subscribe_to_trades(exchange, symbol, wss_url):
-    try:
-        # Dados opcionais de mercado (via API REST, se necessário)
-        market_data = await exchange.fetch_ticker(symbol)
-        logger.info(f"Dados de mercado para {symbol}: {market_data}")
+    """
+    Assina os trades de um símbolo específico via WebSocket.
+    """
+    while True:
+        try:
+            async with websockets.connect(
+                wss_url, ping_interval=20, ping_timeout=120
+            ) as websocket:
+                exchange.ws = websocket
+                subscription_message = {"op": "subscribe", "args": [f"trade.{symbol}"]}
 
-        # Conexão WebSocket
-        async with websockets.connect(wss_url, ping_interval=None) as websocket:
-            logger.info(f"Conectando ao WebSocket para {symbol}")
-            await websocket.send(f'{{"op": "subscribe", "args": ["trade.{symbol}"]}}')
+                await exchange.ws.send(json.dumps(subscription_message))
+                logger.info(
+                    f"Inscrito para receber atualizações de trades para {symbol}"
+                )
 
-            while True:
-                response = await websocket.recv()
-                logger.info(f"Mensagem recebida para {symbol}: {response}")
+                while True:
+                    message = await exchange.ws.recv()
+                    await handle_message(exchange, message)
 
-    except asyncio.TimeoutError:
-        logger.error(f"Timeout ao conectar ao WebSocket para {symbol}.")
-    except Exception as e:
-        logger.error(f"Erro na conexão WebSocket para {symbol}: {str(e)}")
-    finally:
-        await exchange.close()
+        except Exception as e:
+            logger.error(f"Erro na conexão WebSocket para {symbol}: {e}")
+            logger.exception(e)
+            await asyncio.sleep(5)  # Aguarda um pouco antes de tentar reconectar
 
 
 # Função principal do bot de trading
 async def executar_bot_trading(exchange):
-    # Configuração de WebSocket da Bybit
-    wss_url = "wss://stream.bybit.com/realtime"
-
-    # Lista de pares de futuros para análise
-    pares_futuros = ["BTCUSDT", "ETHUSDT"]  # Ajuste conforme necessário
+    """
+    Conecta à Bybit, obtém os pares de futuros, coleta dados via WebSocket,
+    processa sinais e envia mensagens.
+    """
+    exchange.options["defaultType"] = "future"
+    # Usar a ccxt para obter os mercados
+    markets = exchange.load_markets()
+    pares_futuros = [
+        market["id"]
+        for market in markets.values()
+        if market["swap"] and market["quote"] == "USDT"
+    ]
 
     logger.info(f"Iniciando execução para {len(pares_futuros)} pares de futuros.")
 
-    # Criar tarefas para cada par
+    # Inscrever-se nos streams de dados para cada par
+    wss_url = "wss://stream.bybit.com/v5/public/linear"  # URL do WebSocket para Futuros Perpétuos
     tasks = [subscribe_to_trades(exchange, symbol, wss_url) for symbol in pares_futuros]
-
-    # Executar todas as tarefas
     await asyncio.gather(*tasks)

@@ -7,7 +7,6 @@ Arquivo principal para inicializar o bot de trading.
 import os
 import asyncio
 from bot_trading import executar_bot_trading
-import ccxt
 from loguru import logger
 from config_bybit import connect_bybit
 from dotenv import load_dotenv
@@ -22,29 +21,38 @@ if not os.path.exists("logs"):
 logger.add("logs/bot_trading.log", rotation="1 day", level="DEBUG")
 
 
-# Função principal
-async def main():
-    # Carregar variáveis do ambiente
-    load_dotenv()
+async def main() -> None:
+    """
+    Função principal para execução do bot de trading.
+    - Configura o ambiente (Testnet ou Produção).
+    - Conecta-se à API da Bybit.
+    - Inicia a lógica do bot.
+    """
+    # Obter a configuração de Testnet do arquivo .env
+    is_testnet = os.getenv("IS_TESTNET", "false").lower() == "true"
+    logger.info(f"Modo de operação: {'Testnet' if is_testnet else 'Produção'}")
 
-    # Conexão à API da Bybit
-    exchange = ccxt.bybit(
-        {
-            "apiKey": os.getenv("BYBIT_API_KEY"),
-            "secret": os.getenv("BYBIT_API_SECRET"),
-            "enableRateLimit": True,
-        }
-    )
+    # Valida as variáveis de ambiente
+    api_key = os.getenv("BYBIT_API_KEY")
+    api_secret = os.getenv("BYBIT_API_SECRET")
+    if not api_key or not api_secret:
+        logger.error("Chaves de API não configuradas no arquivo .env")
+        return
 
+    # Estabelecer conexão com a Bybit
     try:
+        exchange, market_type = connect_bybit(testnet=is_testnet)
         logger.info("Conexão com a Bybit estabelecida com sucesso.")
-        await executar_bot_trading(exchange)
     except Exception as e:
-        logger.error(f"Erro ao executar o bot de trading: {e}")
-    finally:
-        await exchange.close()
+        logger.error(f"Erro ao conectar com a Bybit: {e}")
+        return  # Encerra a execução se a conexão falhar
+
+    # Iniciar a execução do bot de trading
+    await executar_bot_trading(exchange)
 
 
-# Executar o bot
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())  # Inicia o loop de eventos asyncio
+    except KeyboardInterrupt:
+        logger.info("Interrompendo o programa...")
