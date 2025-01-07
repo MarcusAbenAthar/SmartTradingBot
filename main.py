@@ -4,18 +4,15 @@ Arquivo principal para inicializar o bot de trading.
 - Inicia a execução assíncrona do bot de trading.
 """
 
-import os
 import asyncio
-from bot_trading import executar_bot_trading
+import os
 from loguru import logger
 from config_bybit import connect_bybit
 from dotenv import load_dotenv
+from bot_trading import executar_bot_trading
 
-load_dotenv()  # Carrega as variáveis de ambiente do arquivo .env
-
-# Verifica e cria o diretório de logs
-if not os.path.exists("logs"):
-    os.makedirs("logs")
+# Carrega as variáveis de ambiente do arquivo .env
+load_dotenv()
 
 # Configuração do loguru
 logger.add("logs/bot_trading.log", rotation="1 day", level="DEBUG")
@@ -48,7 +45,11 @@ async def main() -> None:
         return  # Encerra a execução se a conexão falhar
 
     # Iniciar a execução do bot de trading
-    await executar_bot_trading(exchange)
+    try:
+        logger.info(f"Iniciando o bot de trading para o mercado {market_type}...")
+        await executar_bot_trading(exchange)
+    except Exception as e:
+        logger.exception(f"Erro na execução do bot de trading: {e}")
 
 
 if __name__ == "__main__":
