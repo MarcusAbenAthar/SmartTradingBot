@@ -3,6 +3,7 @@
 # Também inclui funções para identificar sinais de entrada com base nos indicadores calculados.
 # As funções são usadas em bot_trading.py para analisar os dados do mercado e gerar sinais de compra/venda.
 
+
 import numpy as np
 import talib
 
@@ -172,27 +173,6 @@ def calculate_stochastic(candles, period=14):
     return slowk, slowd
 
 
-def define_quantidade_tps(forca_do_sinal, volatility):
-    """
-    Define a quantidade de TPs a serem usados com base na força do sinal e na volatilidade.
-
-    Args:
-        forca_do_sinal (int): A força do sinal, calculada pela quantidade de indicadores.
-        volatility (float): A volatilidade do ativo.
-
-    Returns:
-        int: A quantidade de TPs a serem usados.
-    """
-    if forca_do_sinal >= 7 and volatility >= 1.0:
-        return 5  # Sinal muito forte e volatilidade alta: usar 5 TPs
-    elif forca_do_sinal >= 5 and volatility >= 0.5:
-        return 3  # Sinal forte e volatilidade moderada: usar 3 TPs
-    elif forca_do_sinal >= 3:
-        return 2  # Sinal moderado: usar 2 TPs
-    else:
-        return 1  # Sinal fraco ou volatilidade muito baixa: usar 1 TP
-
-
 # Função para identificar padrões de candles
 def identify_candle_patterns(candles):
     """
@@ -267,7 +247,6 @@ def define_quantidade_tps(forca_do_sinal, volatility, current_price, tps, sma_lo
     return quantidade_tps
 
 
-# Função para calcular os níveis de TP e SL com base na volatilidade e na média móvel de longo prazo
 def calculate_tp_sl(prices, entry_type, volatility, candles, forca_do_sinal):
     """
     Calcula os níveis de TP e SL com base na volatilidade, ATR,
@@ -314,14 +293,12 @@ def calculate_tp_sl(prices, entry_type, volatility, candles, forca_do_sinal):
         forca_do_sinal,
         volatility,
         current_price,
-        [],
+        [],  # Lista vazia para tps (será preenchida posteriormente)
         sma_long[-1] if sma_long else None,
     )
 
-    # Inicializar tps com o preço atual
-    tps = [current_price]
-
     # Calcular os TPs
+    tps = []
     for i in range(quantidade_tps):
         if entry_type == "BUY/LONG":
             tp = current_price + atr * tp_atr_multiplier * (i + 1)
@@ -355,7 +332,6 @@ def calculate_tp_sl(prices, entry_type, volatility, candles, forca_do_sinal):
 def identify_entries(
     prices,
     period_sma,
-    period_ema,
     volumes,
     sma,
     ema,

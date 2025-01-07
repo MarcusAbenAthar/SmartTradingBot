@@ -1,0 +1,14 @@
+ccxt>=4.2.76
+python-dotenv>=1.0.1
+streamlit>=1.31.1
+dash>=2.15.0
+python-telegram-bot>=21.0.1
+ta-lib>=0.4.28
+numpy>=1.26.4
+pandas>=2.2.1
+requests>=2.31.0
+loguru>=0.7.2
+backtrader>=1.9.78.123
+plotly>=5.19.0
+matplotlib>=3.8.3
+websocket-client>=1.2.1

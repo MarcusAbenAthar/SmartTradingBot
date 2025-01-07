@@ -1,42 +1,50 @@
-# ARQUIVO MAIN.PY
-# Este é o arquivo principal do bot de trading, que executa o bot de trading continuamente.
+"""
+Arquivo principal para inicializar o bot de trading.
+- Estabelece conexão com a API da Bybit.
+- Inicia a execução assíncrona do bot de trading.
+"""
 
 import os
-import time
+import asyncio
 from bot_trading import executar_bot_trading
+import ccxt
 from loguru import logger
+from config_bybit import connect_bybit
+from dotenv import load_dotenv
 
+load_dotenv()  # Carrega as variáveis de ambiente do arquivo .env
+
+# Verifica e cria o diretório de logs
 if not os.path.exists("logs"):
     os.makedirs("logs")
 
 # Configuração do loguru
-logger.add("logs/bot.log", level="DEBUG")  # Adicionando o caminho para a pasta logs
+logger.add("logs/bot_trading.log", rotation="1 day", level="DEBUG")
 
 
-# Função principal de execução
-def main():
-    is_testnet = False  # Testnet ou rede principal (mude conforme necessário)
-    threads = []  # Lista para armazenar as threads
+# Função principal
+async def main():
+    # Carregar variáveis do ambiente
+    load_dotenv()
 
-    try:  # Adicionar bloco try-except
-        while True:
-            try:
-                # Executar o bot de trading (obter dados, calcular indicadores, identificar entradas)
-                executar_bot_trading(is_testnet)
+    # Conexão à API da Bybit
+    exchange = ccxt.bybit(
+        {
+            "apiKey": os.getenv("BYBIT_API_KEY"),
+            "secret": os.getenv("BYBIT_API_SECRET"),
+            "enableRateLimit": True,
+        }
+    )
 
-            except Exception as e:
-                logger.error(
-                    f"Erro ao processar o bot de trading: {e}"
-                )  # Usando logger do loguru
-
-            # Aguardar antes de realizar a próxima execução (intervalo de 2 minutos)
-            time.sleep(120)
-
-    except KeyboardInterrupt:  # Capturar o KeyboardInterrupt
-        print("Interrompendo o programa...")
-        for thread in threads:  # Finalizar as threads
-            thread.join()
+    try:
+        logger.info("Conexão com a Bybit estabelecida com sucesso.")
+        await executar_bot_trading(exchange)
+    except Exception as e:
+        logger.error(f"Erro ao executar o bot de trading: {e}")
+    finally:
+        await exchange.close()
 
 
+# Executar o bot
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

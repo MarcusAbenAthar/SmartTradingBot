@@ -1,12 +1,9 @@
-# ARQUIVO BOT_TRADING.PY
-# Função para executar o bot de trading na Bybit
-# Aqui se encontra o código principal do bot de trading, que conecta à Bybit, obtém os pares de futuros, coleta dados via WebSocket, processa sinais.
-
-import time
 import numpy as np
 import pandas as pd
 import os
-from config_bybit import connect_bybit
+import asyncio
+import websockets
+import json
 from utils import (
     calculate_adx,
     calculate_stochastic,
@@ -19,16 +16,44 @@ from utils import (
     calculate_macd,
     calculate_bollinger_bands,
     calculate_vwap,
+    calculate_tp_sl,
 )
 from send_telegram import enviar_mensagem_formatada
-import logging
-from pybit.unified_trading import WebSocket
+from loguru import logger
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# --- CONFIGURAÇÕES (estes valores podem ser ajustados no arquivo .env) ---
+VOLATILITY_THRESHOLDS = [
+    float(x) for x in os.getenv("VOLATILITY_THRESHOLDS", "0.5,1.0,2.0").split(",")
+]
+SMA_PERIODS = [int(x) for x in os.getenv("SMA_PERIODS", "50,30,20,10").split(",")]
+EMA_PERIODS = [int(x) for x in os.getenv("EMA_PERIODS", "20,15,12,5").split(",")]
+LEVERAGE_THRESHOLDS = [
+    int(x) for x in os.getenv("LEVERAGE_THRESHOLDS", "7,5,3").split(",")
+]
+DEFAULT_LEVERAGE = os.getenv("DEFAULT_LEVERAGE", "3x")
+LEVERAGE_MULTIPLIERS = [os.getenv("LEVERAGE_MULTIPLIERS", "20x,10x,5x").split(",")]
+SL_DISTANCE_MULTIPLIERS = [
+    float(x) for x in os.getenv("SL_DISTANCE_MULTIPLIERS", "0.02,0.01,0.005").split(",")
+]
+ADX_TREND_THRESHOLD = int(os.getenv("ADX_TREND_THRESHOLD", "25"))
+ADX_MODERATE_TREND_THRESHOLD = int(os.getenv("ADX_MODERATE_TREND_THRESHOLD", "20"))
+RSI_OVERBOUGHT_THRESHOLD = int(os.getenv("RSI_OVERBOUGHT_THRESHOLD", "60"))
+RSI_OVERSOLD_THRESHOLD = int(os.getenv("RSI_OVERSOLD_THRESHOLD", "40"))
+RSI_NEUTRAL_UPPER_THRESHOLD = int(os.getenv("RSI_NEUTRAL_UPPER_THRESHOLD", "50"))
+RSI_NEUTRAL_LOWER_THRESHOLD = int(os.getenv("RSI_NEUTRAL_LOWER_THRESHOLD", "50"))
+STOCHASTIC_OVERBOUGHT_THRESHOLD = int(
+    os.getenv("STOCHASTIC_OVERBOUGHT_THRESHOLD", "80")
+)
+STOCHASTIC_OVERSOLD_THRESHOLD = int(os.getenv("STOCHASTIC_OVERSOLD_THRESHOLD", "20"))
+# -----------------------------------------------------------------------
 
 # Configuração de logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger()
+logger.add(
+    "logs/bot_trading.log", rotation="1 day", level="DEBUG"
+)  # Adicionando rotação diária
 
 # Criar a pasta mãe se ela não existir
 pasta_mae = "dados_velas"
@@ -43,14 +68,49 @@ N = 200  # Armazenar as últimas 200 velas (ajuste conforme necessário)
 active_signals = []
 
 
-def websocket_handler(message):
+async def handle_message(exchange, message):
     """
-    Processa as mensagens recebidas da WebSocket da Bybit.
+    Processa as mensagens de trade recebidas via WebSocket.
     """
+    global velas_historico
+
+    logger.debug(f"Mensagem recebida: {message}")
+
     try:
-        if message["topic"].startswith("kline.1."):
-            symbol = message["topic"].split(".")[2]
-            vela = message["data"][0]
+        data = json.loads(message)  # Converte a mensagem JSON em um dicionário Python
+
+        # Verifica se a mensagem é um dicionário
+        if not isinstance(data, dict):
+            logger.warning(
+                f"Mensagem inválida recebida (não é um dicionário): {message}"
+            )
+            return
+
+        # Bybit envia ping, precisamos responder com pong
+        if data.get("op") == "ping":
+            await exchange.ws.send(
+                json.dumps({"op": "pong", "req_id": data.get("req_id")})
+            )
+            logger.debug("Respondeu ao ping com pong")
+            return
+
+        # Verifica se a mensagem é um trade e se contém os dados necessários
+        if "topic" not in data or not data["topic"].startswith("trade"):
+            logger.warning(f"Mensagem não é do tipo trade: {message}")
+            return
+
+        for trade in data["data"]:
+            symbol = trade["s"]
+
+            # Adaptação para a estrutura de mensagem da Bybit
+            vela = {
+                "open": float(trade["p"]),
+                "high": float(trade["p"]),
+                "low": float(trade["p"]),
+                "close": float(trade["p"]),
+                "volume": float(trade["v"]),
+                "time_period": trade["T"],
+            }
 
             # 1. Carregar os dados do CSV se o arquivo existir
             arquivo_csv = os.path.join(pasta_mae, symbol, f"dados_velas_{symbol}.csv")
@@ -62,7 +122,7 @@ def websocket_handler(message):
                 except Exception as e:
                     logger.error(f"Erro ao ler dados do CSV para {symbol}: {e}")
 
-            # 2. Armazenar a nova vela no dicionário `velas_historico`
+            # 2. Armazenar a nova vela no dicionário velas_historico
             velas_historico[symbol] = velas_historico.get(symbol, []) + [vela]
             velas_historico[symbol] = velas_historico[symbol][-N:]
 
@@ -74,20 +134,39 @@ def websocket_handler(message):
                 [float(vela["volume"]) for vela in velas_historico[symbol]]
             )
 
+            # Carregar configurações dinâmicas
+            volatility_thresholds = VOLATILITY_THRESHOLDS
+            sma_periods = SMA_PERIODS
+            ema_periods = EMA_PERIODS
+            leverage_thresholds = LEVERAGE_THRESHOLDS
+            default_leverage = DEFAULT_LEVERAGE
+            leverage_multipliers = LEVERAGE_MULTIPLIERS
+            sl_distance_multipliers = SL_DISTANCE_MULTIPLIERS
+            adx_trend_threshold = ADX_TREND_THRESHOLD
+            adx_moderate_trend_threshold = ADX_MODERATE_TREND_THRESHOLD
+            rsi_overbought_threshold = RSI_OVERBOUGHT_THRESHOLD
+            rsi_oversold_threshold = RSI_OVERSOLD_THRESHOLD
+            rsi_neutral_upper_threshold = RSI_NEUTRAL_UPPER_THRESHOLD
+            rsi_neutral_lower_threshold = RSI_NEUTRAL_LOWER_THRESHOLD
+            stochastic_overbought_threshold = STOCHASTIC_OVERBOUGHT_THRESHOLD
+            stochastic_oversold_threshold = STOCHASTIC_OVERSOLD_THRESHOLD
+
             # Calcular a volatilidade para definir os períodos do SMA e EMA dinamicamente
             volatility = calculate_volatility(prices)
-            if volatility < 0.5:
-                period_sma_short = 50  # Volatilidade muito baixa
-                period_ema_short = 20
-            elif volatility < 1.0:
-                period_sma_short = 30  # Volatilidade baixa
-                period_ema_short = 15
-            elif volatility < 2.0:
-                period_sma_short = 20  # Volatilidade moderada
-                period_ema_short = 12
-            else:
-                period_sma_short = 10  # Volatilidade alta
-                period_ema_short = 5
+
+            # Escolher os períodos de SMA e EMA com base na volatilidade
+            period_sma_short = sma_periods[
+                next(
+                    (i for i, v in enumerate(volatility_thresholds) if volatility < v),
+                    len(sma_periods) - 1,
+                )
+            ]
+            period_ema_short = ema_periods[
+                next(
+                    (i for i, v in enumerate(volatility_thresholds) if volatility < v),
+                    len(ema_periods) - 1,
+                )
+            ]
 
             # Calcular os indicadores técnicos
             sma = calculate_sma(prices, period_sma_short)
@@ -114,7 +193,6 @@ def websocket_handler(message):
                 result = identify_entries(
                     prices=prices,
                     period_sma=period_sma_short,
-                    period_ema=period_ema_short,
                     volumes=volumes,
                     long_term=False,
                     sma=sma,
@@ -138,84 +216,121 @@ def websocket_handler(message):
                 # 5. Gerar alertas e enviar para o Telegram (dinâmico)
                 dados_mensagem = {"tps": []}
 
-            if (
-                result
-                and result["entry_type"] != "No Signal"
-                and len(result["active_signals"]) > 6
-            ):
-
-                # --- Calcular a alavancagem dinamicamente ---
-                forca_do_sinal = len(result["active_signals"])
-
-                # Garantindo que symbol está definido
-                symbol = message["topic"].split(".")[2]
-
-                # Calcular a distância do stop-loss
-                distancia_sl = abs(prices[-1] - result["sl"])
-
-                alavancagem = "3x"  # Alavancagem padrão
-
-                # Condições para aumentar a alavancagem (adaptar conforme necessário)
                 if (
-                    forca_do_sinal >= 7  # Força do sinal muito alta
-                    and volatility < 0.5  # Volatilidade baixa
-                    and distancia_sl > 0.02 * prices[-1]  # Stop-loss distante
-                    and adx[-1] > 25  # Tendência forte
-                    and (
-                        (result["entry_type"] == "BUY/LONG" and rsi > 60)
-                        or (result["entry_type"] == "SELL/SHORT" and rsi < 40)
-                    )  # RSI confirmando a direção
-                    and (
-                        (
-                            result["entry_type"] == "BUY/LONG"
-                            and stochastic_k[-1] > stochastic_d[-1]
-                            and stochastic_k[-1] < 80
+                    result
+                    and result["entry_type"] != "No Signal"
+                    and len(result["active_signals"]) > 6
+                ):
+                    # --- Calcular a alavancagem dinamicamente ---
+                    forca_do_sinal = len(result["active_signals"])
+
+                    # Calcular a distância do stop-loss
+                    distancia_sl = abs(prices[-1] - result["sl"])
+
+                    alavancagem = default_leverage  # Alavancagem padrão
+
+                    # Escolher o multiplicador de alavancagem com base na força do sinal
+                    leverage_multiplier = leverage_multipliers[
+                        next(
+                            (
+                                i
+                                for i, v in enumerate(leverage_thresholds)
+                                if forca_do_sinal >= v
+                            ),
+                            len(leverage_multipliers) - 1,
                         )
-                        or (
-                            result["entry_type"] == "SELL/SHORT"
-                            and stochastic_k[-1] < stochastic_d[-1]
-                            and stochastic_k[-1] > 20
-                        )
-                    )  # Estocástico confirmando a direção
-                ):
-                    alavancagem = "20x"
+                    ]
 
-                elif (
-                    forca_do_sinal >= 5  # Força do sinal alta
-                    and volatility < 1.0  # Volatilidade moderada
-                    and distancia_sl
-                    > 0.01 * prices[-1]  # Stop-loss moderadamente distante
-                    and adx[-1] > 20  # Tendência moderada
-                    and (
-                        (result["entry_type"] == "BUY/LONG" and rsi > 50)
-                        or (result["entry_type"] == "SELL/SHORT" and rsi < 50)
-                    )  # RSI neutro ou confirmando a direção
-                ):
-                    alavancagem = "10x"
+                    # Condições para aumentar a alavancagem (adaptar conforme necessário)
+                    if (
+                        forca_do_sinal
+                        >= leverage_thresholds[0]  # Força do sinal muito alta
+                        and volatility < volatility_thresholds[0]  # Volatilidade baixa
+                        and distancia_sl
+                        > sl_distance_multipliers[0] * prices[-1]  # Stop-loss distante
+                        and adx[-1] > adx_trend_threshold  # Tendência forte
+                        and (
+                            (
+                                result["entry_type"] == "BUY/LONG"
+                                and rsi > rsi_overbought_threshold
+                            )
+                            or (
+                                result["entry_type"] == "SELL/SHORT"
+                                and rsi < rsi_oversold_threshold
+                            )
+                        )  # RSI confirmando a direção
+                        and (
+                            (
+                                result["entry_type"] == "BUY/LONG"
+                                and stochastic_k[-1] > stochastic_d[-1]
+                                and stochastic_k[-1] < stochastic_overbought_threshold
+                            )
+                            or (
+                                result["entry_type"] == "SELL/SHORT"
+                                and stochastic_k[-1] < stochastic_d[-1]
+                                and stochastic_k[-1] > stochastic_oversold_threshold
+                            )
+                        )  # Estocástico confirmando a direção
+                    ):
+                        alavancagem = leverage_multiplier
 
-                elif (
-                    forca_do_sinal >= 3  # Força do sinal moderada
-                    and volatility < 2.0  # Volatilidade alta
-                    and distancia_sl > 0.005 * prices[-1]  # Stop-loss próximo
-                ):
-                    alavancagem = "5x"
+                    elif (
+                        forca_do_sinal >= leverage_thresholds[1]  # Força do sinal alta
+                        and volatility
+                        < volatility_thresholds[1]  # Volatilidade moderada
+                        and distancia_sl
+                        > sl_distance_multipliers[1]
+                        * prices[-1]  # Stop-loss moderadamente distante
+                        and adx[-1] > adx_moderate_trend_threshold  # Tendência moderada
+                        and (
+                            (
+                                result["entry_type"] == "BUY/LONG"
+                                and rsi > rsi_neutral_upper_threshold
+                            )
+                            or (
+                                result["entry_type"] == "SELL/SHORT"
+                                and rsi < rsi_neutral_lower_threshold
+                            )
+                        )  # RSI neutro ou confirmando a direção
+                    ):
+                        alavancagem = leverage_multiplier
 
-                # --- Fim da lógica da alavancagem ---
+                    elif (
+                        forca_do_sinal
+                        >= leverage_thresholds[2]  # Força do sinal moderada
+                        and volatility < volatility_thresholds[2]  # Volatilidade alta
+                        and distancia_sl
+                        > sl_distance_multipliers[2] * prices[-1]  # Stop-loss próximo
+                    ):
+                        alavancagem = leverage_multiplier
 
-                # Enviar a mensagem para o Telegram (apenas quando houver sinal claro)
-                dados_mensagem = {
-                    "simbolo": symbol,
-                    "entrada": prices[-1],
-                    "tipo_entrada": result["entry_type"],
-                    "tps": result["tps"],
-                    "sl": result["sl"],
-                    "motivos": result["active_signals"],
-                    "alavancagem": alavancagem,
-                }
-                # Registrar o valor de `dados_mensagem` no log
-                logger.debug(f"Dados da mensagem: {dados_mensagem}")
-            if result["entry_type"] != "NEUTRO":  # Adicionar esta condição
-                enviar_mensagem_formatada(dados_mensagem)
+                    # --- Fim da lógica da alavancagem ---
+
+                    # Chamar a função calculate_tp_sl para calcular os níveis de TP e SL
+                    tp_sl_levels = calculate_tp_sl(
+                        prices,
+                        result["entry_type"],
+                        volatility,
+                        velas_historico[symbol],
+                        forca_do_sinal,
+                    )
+                    result["tps"] = tp_sl_levels["tps"]
+                    result["sl"] = tp_sl_levels["sl"]
+
+                    # Enviar a mensagem para o Telegram (apenas quando houver sinal claro)
+                    dados_mensagem = {
+                        "simbolo": symbol,
+                        "entrada": prices[-1],
+                        "tipo_entrada": result["entry_type"],
+                        "tps": result["tps"],
+                        "sl": result["sl"],
+                        "motivos": result["active_signals"],
+                        "alavancagem": alavancagem,
+                    }
+                    # Registrar o valor de dados_mensagem no log
+                    logger.debug(f"Dados da mensagem: {dados_mensagem}")
+                    if result["entry_type"] != "NEUTRO":  # Adicionar esta condição
+                        enviar_mensagem_formatada(dados_mensagem)
 
             # 6. Salvar as velas em um arquivo CSV (depois da análise)
             arquivo_csv = os.path.join(pasta_mae, symbol, f"dados_velas_{symbol}.csv")
@@ -242,72 +357,45 @@ def websocket_handler(message):
 
     except Exception as e:
         logger.error(f"Erro ao processar mensagem da WebSocket: {e}")
+        logger.exception(e)
 
 
-# Função para obter todos os pares de mercado futuros
-def obter_pares_todos(session, market_type):
-    """
-    Obtém todos os pares de negociação para o tipo de mercado especificado,
-    filtrando por USDT.
-
-    Args:
-        session (HTTP): Sessão HTTP da Bybit.
-        market_type (str): Tipo de mercado ("future").
-
-    Returns:
-        list: Lista de símbolos de pares de negociação.
-    """
-    # A API da Bybit usa 'linear' para futuros perpétuos USDT
-    category = "linear" if market_type == "future" else market_type
-
+# Função para se inscrever em um WebSocket para obter dados de trades
+async def subscribe_to_trades(exchange, symbol, wss_url):
     try:
-        response = session.get_instruments_info(category=category)
-        result = response.json() if hasattr(response, "json") else response
+        # Dados opcionais de mercado (via API REST, se necessário)
+        market_data = await exchange.fetch_ticker(symbol)
+        logger.info(f"Dados de mercado para {symbol}: {market_data}")
 
-        if result["retCode"] == 0:
-            pares = [
-                item["symbol"]
-                for item in result["result"]["list"]
-                if item["symbol"].endswith("USDT")
-            ]
-            logger.info(
-                f"Total de pares {market_type} encontrados (apenas USDT): {len(pares)}"
-            )
-            return pares
-        else:
-            logger.error(f"Erro ao obter pares {market_type}: {result['retMsg']}")
-            return []
+        # Conexão WebSocket
+        async with websockets.connect(wss_url, ping_interval=None) as websocket:
+            logger.info(f"Conectando ao WebSocket para {symbol}")
+            await websocket.send(f'{{"op": "subscribe", "args": ["trade.{symbol}"]}}')
+
+            while True:
+                response = await websocket.recv()
+                logger.info(f"Mensagem recebida para {symbol}: {response}")
+
+    except asyncio.TimeoutError:
+        logger.error(f"Timeout ao conectar ao WebSocket para {symbol}.")
     except Exception as e:
-        logger.error(f"Exceção ao obter pares {market_type}: {e}")
-        return []
+        logger.error(f"Erro na conexão WebSocket para {symbol}: {str(e)}")
+    finally:
+        await exchange.close()
 
 
 # Função principal do bot de trading
-def executar_bot_trading(testnet=True):
-    """
-    Conecta à Bybit, obtém os pares de futuros, coleta dados via WebSocket,
-    processa sinais e envia mensagens.
-    """
+async def executar_bot_trading(exchange):
+    # Configuração de WebSocket da Bybit
+    wss_url = "wss://stream.bybit.com/realtime"
 
-    # Iniciar a WebSocket
-    ws = WebSocket(
-        testnet=testnet,
-        ping_interval=30,
-        channel_type="linear",
-    )
+    # Lista de pares de futuros para análise
+    pares_futuros = ["BTCUSDT", "ETHUSDT"]  # Ajuste conforme necessário
 
-    # Obter todos os pares de futuros
-    session_future, _ = connect_bybit(testnet=testnet, market_type="future")
-    pares_futuros = obter_pares_todos(session_future, "future")
+    logger.info(f"Iniciando execução para {len(pares_futuros)} pares de futuros.")
 
-    # Inscrever-se nos streams de dados para cada par
-    for par in pares_futuros:
-        ws.kline_stream(
-            callback=websocket_handler,
-            symbol=par,
-            interval="1",
-        )
+    # Criar tarefas para cada par
+    tasks = [subscribe_to_trades(exchange, symbol, wss_url) for symbol in pares_futuros]
 
-    # Manter a conexão WebSocket aberta
-    while True:
-        time.sleep(1)
+    # Executar todas as tarefas
+    await asyncio.gather(*tasks)
