@@ -7,8 +7,9 @@ from websocket_manager import subscribe_to_trades
 
 load_dotenv()
 
-# Configuração de logging
-logger.add("logs/bot_trading.log", rotation="1 day", level="DEBUG")
+# --- CONFIGURAÇÕES ---
+# (As configurações foram movidas para o arquivo 'constants.py')
+# ----------------------
 
 
 async def executar_bot_trading(exchange):
@@ -23,11 +24,26 @@ async def executar_bot_trading(exchange):
         markets = exchange.load_markets()
 
         # Filtrar os pares de futuros com USDT como quote currency
+        # (reduzindo o número de pares)
         pares_futuros = [
             market["id"]
             for market in markets.values()
-            if market["swap"] and market["quote"] == "USDT"
+            if market["swap"]
+            and market["quote"] == "USDT"
+            and market["base"]
+            in [
+                "BTC",
+                "ETH",
+                "XRP",
+                "SOL",
+            ]  # Exemplo: incluir apenas BTC, ETH, XRP e SOL
         ]
+
+        # pares_futuros = [
+        #     market["id"]
+        #     for market in markets.values()
+        #     if market["swap"] and market["quote"] == "USDT"
+        # ]
 
         logger.info(f"Iniciando execução para {len(pares_futuros)} pares de futuros.")
 

@@ -15,7 +15,7 @@ from bot_trading import executar_bot_trading
 load_dotenv()
 
 # Configuração do loguru
-logger.add("logs/bot_trading.log", rotation="1 day", level="DEBUG")
+logger.add("logs/bot_trading.log", rotation="10 MB", retention="10 days", level="DEBUG")
 
 
 async def main() -> None:
